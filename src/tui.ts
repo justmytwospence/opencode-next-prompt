@@ -1,4 +1,3 @@
-/** @jsxImportSource @opentui/solid */
 // opencode-next-prompt (TUI): when a turn ends with a suggestion, it is the ghost text of the
 // empty prompt (`Ask anything… "Run the tests"`); Tab or Right fills it in, typing hides it, and
 // a new prompt, a busy session or compaction drops it. Each session keeps its own suggestion.
@@ -6,8 +5,15 @@
 // It renders the session prompt itself (the `session_prompt` slot, replace mode) with the host's
 // props passed through, adding only the placeholder and a hint, and keeps the
 // `session_prompt_right` slot so other plugins still draw beside it.
+//
+// No JSX: opencode compiles a plugin's .tsx with its Solid transform only outside node_modules,
+// and a git or npm install lives inside it, where Bun's own JSX transform would import
+// `@opentui/solid/jsx-dev-runtime` behind opencode's back (it is only a devDependency here).
+// Explicit imports of `@opentui/solid/jsx-runtime` and `solid-js` are mapped to the host's
+// copies; props that must stay reactive are getters.
 
 import type { TuiPlugin, TuiPluginApi, TuiPromptRef } from "@opencode-ai/plugin/tui";
+import { jsx } from "@opentui/solid/jsx-runtime";
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import { Tracker, vet } from "./core.js";
 import { DEFAULTS, NAME, type Options } from "./server.js";
@@ -149,27 +155,49 @@ const tui: TuiPlugin = async (api, pluginOptions) => {
       if (r && r.current.input !== "" && text()) clear(props.session_id);
     });
     const theme = () => api.theme.current;
-    return (
-      <api.ui.Prompt
-        sessionID={props.session_id}
-        visible={props.visible}
-        disabled={props.disabled}
-        onSubmit={() => props.on_submit?.()}
-        ref={(r) => {
-          setRef(r);
-          props.ref?.(r);
-        }}
-        placeholders={{ normal: text() ? [text()!] : [] }}
-        hint={text() ? <text fg={theme().textMuted} marginLeft={1}>{`${keyLabel(options().acceptKeys[0] ?? "tab")} to accept the suggestion`}</text> : undefined}
-        right={<api.ui.Slot name="session_prompt_right" session_id={props.session_id} />}
-      />
-    );
+    const hint = jsx("text", {
+      get fg() {
+        return theme().textMuted;
+      },
+      marginLeft: 1,
+      children: `${keyLabel(options().acceptKeys[0] ?? "tab")} to accept the suggestion`,
+    });
+    const right = jsx(api.ui.Slot as never, {
+      name: "session_prompt_right",
+      get session_id() {
+        return props.session_id;
+      },
+    });
+    return jsx(api.ui.Prompt as never, {
+      get sessionID() {
+        return props.session_id;
+      },
+      get visible() {
+        return props.visible;
+      },
+      get disabled() {
+        return props.disabled;
+      },
+      onSubmit: () => props.on_submit?.(),
+      ref: (r: TuiPromptRef | undefined) => {
+        setRef(r);
+        props.ref?.(r);
+      },
+      get placeholders() {
+        const t = text();
+        return { normal: t ? [t] : [] };
+      },
+      get hint() {
+        return text() ? hint : undefined;
+      },
+      right,
+    });
   }
 
   api.slots.register({
     order: 100,
     slots: {
-      session_prompt: (_ctx, props) => <SessionPrompt {...(props as SessionPromptProps)} />,
+      session_prompt: (_ctx, props) => jsx(SessionPrompt as never, props as never),
     },
   });
 };

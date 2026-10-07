@@ -6,20 +6,32 @@
 // props passed through, adding only the placeholder and a hint, and keeps the
 // `session_prompt_right` slot so other plugins still draw beside it.
 //
-// No JSX: opencode compiles a plugin's .tsx with its Solid transform only outside node_modules,
-// and a git or npm install lives inside it, where Bun's own JSX transform would import
-// `@opentui/solid/jsx-dev-runtime` behind opencode's back (it is only a devDependency here).
-// Explicit imports of `@opentui/solid/jsx-runtime` and `solid-js` are mapped to the host's
-// copies; props that must stay reactive are getters.
+// No JSX and no static Solid imports. opencode compiles a plugin's .tsx with its Solid transform
+// only outside node_modules, and maps `solid-js` and `@opentui/solid` imports to its own copies
+// only in files whose path has no `#` or `?`; a git install lives in
+// `node_modules/…/<name>#<commit>/`, so neither applies there. The host's copies are Bun virtual
+// modules (`opentui:runtime-module:<specifier>`), importable from anywhere; a checkout without
+// them (or an opencode that renames them) falls back to the plain specifiers. Props that must
+// stay reactive are getters.
 
 import type { TuiPlugin, TuiPluginApi, TuiPromptRef } from "@opencode-ai/plugin/tui";
-import { jsx } from "@opentui/solid/jsx-runtime";
-import { createEffect, createSignal, onCleanup } from "solid-js";
 import { Tracker, vet } from "./core.js";
 import { DEFAULTS, NAME, type Options } from "./server.js";
 import { loadSettings } from "./settings.js";
 
 const KV_KEY = "next-prompt.enabled";
+const RUNTIME_MODULE = "opentui:runtime-module:";
+
+type Solid = typeof import("solid-js");
+type JsxRuntime = typeof import("@opentui/solid/jsx-runtime");
+
+async function hostModule<T>(specifier: string, fallback: () => Promise<T>): Promise<T> {
+  try {
+    return (await import(RUNTIME_MODULE + encodeURIComponent(specifier))) as T;
+  } catch {
+    return fallback();
+  }
+}
 
 type SessionPromptProps = {
   session_id: string;
@@ -30,6 +42,8 @@ type SessionPromptProps = {
 };
 
 const tui: TuiPlugin = async (api, pluginOptions) => {
+  const { createEffect, createSignal, onCleanup } = await hostModule<Solid>("solid-js", () => import("solid-js"));
+  const { jsx } = await hostModule<JsxRuntime>("@opentui/solid/jsx-runtime", () => import("@opentui/solid/jsx-runtime"));
   const options = (): Options =>
     loadSettings(NAME, DEFAULTS, pluginOptions as Record<string, unknown> | undefined, api.state.path.directory || process.cwd());
   const tracker = new Tracker();
